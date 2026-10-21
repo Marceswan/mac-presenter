@@ -150,7 +150,8 @@ private struct PrompterScreen: View {
             position: model.position,
             style: style,
             onUserScroll: { model.jump(to: $0) },
-            onToggleListening: { model.toggleListening() })
+            onToggleListening: { model.toggleListening() },
+            isListening: model.state == .listening)
             .ignoresSafeArea()
             .overlay(alignment: .bottom) {
                 if showOverlay {

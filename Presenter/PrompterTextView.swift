@@ -202,7 +202,7 @@ final class PrompterTextView: NSView {
         /// The lead stops growing this long (seconds) after the last update.
         static let leadWindow: CFTimeInterval = 1.2
         /// The lead never passes this many words.
-        static let maxLead = 1.0
+        static let maxLead = 2.0
     }
 
     private var displayLink: CADisplayLink?
