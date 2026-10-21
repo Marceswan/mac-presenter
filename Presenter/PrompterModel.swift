@@ -94,7 +94,11 @@ final class PrompterModel {
 
         let text: String?
         if url.pathExtension.lowercased() == "rtf" {
-            text = (try? NSAttributedString(url: url, options: [:], documentAttributes: nil))?.string
+            // Pin the type so a renamed HTML file cannot load remote resources.
+            text = (try? NSAttributedString(
+                url: url,
+                options: [.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil))?.string
         } else {
             text = try? String(contentsOf: url, encoding: .utf8)
         }
