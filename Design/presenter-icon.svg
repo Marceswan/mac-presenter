@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<title>Presenter Icon</title><desc>Indigo teleprompter script with a mint speech-following waveform.</desc>
+<metadata>hermes-title: Presenter Icon; hermes-description: macOS teleprompter icon with script lines and a live mint waveform.</metadata>
+<defs>
+ <linearGradient id="tile" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#5356B8"/><stop offset=".46" stop-color="#303274"/><stop offset="1" stop-color="#171B43"/></linearGradient>
+ <radialGradient id="light" cx=".2" cy="0" r="1"><stop stop-color="#A4A3FF" stop-opacity=".24"/><stop offset="1" stop-color="#878AFF" stop-opacity="0"/></radialGradient>
+ <linearGradient id="glass" x1="0" y1="0" x2=".9" y2="1"><stop stop-color="#252D63"/><stop offset="1" stop-color="#101831"/></linearGradient>
+ <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#D4D5FF" stop-opacity=".48"/><stop offset=".5" stop-color="#7F8EBE" stop-opacity=".1"/><stop offset="1" stop-color="#A4BADE" stop-opacity=".25"/></linearGradient>
+ <linearGradient id="mint" gradientUnits="userSpaceOnUse" x1="300" y1="490" x2="716" y2="597"><stop stop-color="#BAFFE8"/><stop offset="1" stop-color="#5AE6C3"/></linearGradient>
+ <linearGradient id="line" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#F1F1FF"/><stop offset="1" stop-color="#BFC7EC"/></linearGradient>
+</defs>
+<!-- Inset rounded tile retains macOS Dock optical padding. -->
+<rect x="64" y="84" width="896" height="896" rx="204" fill="#080D25" opacity=".08"/>
+<rect x="64" y="76" width="896" height="896" rx="204" fill="#080D25" opacity=".16"/>
+<rect x="64" y="64" width="896" height="896" rx="204" fill="url(#tile)"/>
+<rect x="64" y="64" width="896" height="896" rx="204" fill="url(#light)"/>
+<rect x="66" y="66" width="892" height="892" rx="202" fill="none" stroke="#DBDDFF" stroke-opacity=".24" stroke-width="3"/>
+<!-- Recessed prompter surface. -->
+<rect x="217" y="191" width="590" height="656" rx="88" fill="#080E2C" opacity=".25"/>
+<rect x="217" y="175" width="590" height="656" rx="88" fill="url(#glass)" stroke="url(#edge)" stroke-width="4"/>
+<!-- Script recedes before and after the reading position. -->
+<g fill="url(#line)">
+ <rect x="303" y="285" width="345" height="27" rx="13.5" opacity=".38"/>
+ <rect x="303" y="352" width="416" height="27" rx="13.5" opacity=".70"/>
+ <rect x="303" y="419" width="290" height="27" rx="13.5" opacity=".95"/>
+ <rect x="303" y="646" width="416" height="27" rx="13.5" opacity=".42"/>
+ <rect x="303" y="713" width="327" height="27" rx="13.5" opacity=".21"/>
+</g>
+<!-- Active reading row: speech itself becomes the text line. -->
+<rect x="253" y="490" width="518" height="111" rx="31" fill="#63E5CA" fill-opacity=".08"/>
+<path d="M188 526 L214 545 L188 564" fill="none" stroke="#A0FFE3" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+<g stroke="url(#mint)" stroke-width="17" stroke-linecap="round">
+ <path d="M302 545H350"/>
+ <path d="M380 527V563"/>
+ <path d="M415 507V583"/>
+ <path d="M450 519V571"/>
+ <path d="M485 493V597"/>
+ <path d="M520 512V578"/>
+ <path d="M555 530V560"/>
+ <path d="M590 516V574"/>
+ <path d="M625 534V556"/>
+ <path d="M657 545H716"/>
+</g>
+</svg>
