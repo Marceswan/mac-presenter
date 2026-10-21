@@ -5,3 +5,4 @@ Presenter.xcodeproj/
 xcuserdata/
 *.xcuserstate
 .swiftpm/
+.claude/worktrees/
