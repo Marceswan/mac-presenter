@@ -1,0 +1,42 @@
+name: Presenter
+options:
+  bundleIdPrefix: com.marcswan
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+packages:
+  PresenterCore:
+    path: PresenterCore
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: 58XKRG9VMA
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Apple Development"
+    PROVISIONING_PROFILE_SPECIFIER: ""
+targets:
+  Presenter:
+    type: application
+    platform: macOS
+    sources: [Presenter]
+    dependencies:
+      - package: PresenterCore
+    entitlements:
+      path: Presenter/Presenter.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.device.audio-input: true
+        com.apple.security.files.user-selected.read-only: true
+    info:
+      path: Presenter/Info.plist
+      properties:
+        CFBundleDisplayName: Presenter
+        LSApplicationCategoryType: public.app-category.productivity
+        NSMicrophoneUsageDescription: Presenter listens to your voice to scroll the script while you speak. The audio stays on this Mac.
+        NSSpeechRecognitionUsageDescription: Presenter changes your speech into text on this Mac to find your place in the script.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.marcswan.Presenter
+        ENABLE_HARDENED_RUNTIME: YES
