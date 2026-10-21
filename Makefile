@@ -1,4 +1,9 @@
+SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -c
+
 APP := build/Build/Products/Debug/Presenter.app
+# xcodebuild prints simulator warnings that do not apply to a Mac-only app.
+NOISE := CoreSimulator|SimServiceContext|IDERunDestination|DVTErrorPresenter|^Domain:|^Code: 3|^Failure Reason|^Recovery Suggestion|^--$$|^$$
 
 .PHONY: project build run test clean
 
@@ -7,7 +12,8 @@ project:
 
 build: project
 	xcodebuild -project Presenter.xcodeproj -scheme Presenter -configuration Debug \
-		-destination "platform=macOS,arch=arm64" -derivedDataPath build -quiet build 2>&1 | grep -vE "CoreSimulator|DVTCoreSimulator|SimServiceContext|IDERunDestination|^Domain:|^Code: 3|^Failure Reason|^Recovery Suggestion|^--$$|^$$" || true
+		-destination "platform=macOS,arch=arm64" -derivedDataPath build -quiet build 2>&1 \
+		| sed -E '/$(NOISE)/d'
 
 run: build
 	open $(APP)
