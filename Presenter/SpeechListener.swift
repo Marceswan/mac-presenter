@@ -192,7 +192,7 @@ final class SpeechListener {
             onLevel: { level in Task { @MainActor in onEvent(.level(level)) } })
         else { throw ListenerError.audioFormatUnavailable }
         engine.inputNode.installTap(
-            onBus: 0, bufferSize: 4096, format: inputFormat,
+            onBus: 0, bufferSize: 1024, format: inputFormat,
             block: Self.makeTapBlock(processor: processor))
         self.engine = engine
         tapInstalled = true
