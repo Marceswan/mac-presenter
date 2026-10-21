@@ -100,6 +100,9 @@ struct PrompterView: NSViewRepresentable {
     var onUserScroll: (Int) -> Void
     /// Called when the user presses Space while the prompter has focus.
     var onToggleListening: () -> Void
+    /// True while the microphone feeds the follower. The view then moves a little ahead of
+    /// `position` at the speaking pace, so the recognizer delay does not show as lag.
+    var isListening: Bool = false
 
     func makeNSView(context: Context) -> PrompterTextView {
         let view = PrompterTextView(frame: .zero)
@@ -114,7 +117,7 @@ struct PrompterView: NSViewRepresentable {
     private func configure(_ view: PrompterTextView) {
         view.onUserScroll = onUserScroll
         view.onToggleListening = onToggleListening
-        view.update(script: script, position: position, style: style)
+        view.update(script: script, position: position, style: style, isListening: isListening)
     }
 }
 
@@ -155,6 +158,8 @@ final class PrompterTextView: NSView {
     private var lineHeight: CGFloat = 0
     private var firstContentCharacter = -1
     private var lastContentCharacter = -1
+    /// Scroll target per word index. Layout changes clear it.
+    private var targetCache: [Int: CGFloat] = [:]
 
     // MARK: Colors
 
@@ -167,7 +172,38 @@ final class PrompterTextView: NSView {
     private var velocity: CGFloat = 0
     private var target: CGFloat = 0
     private var springRunning = false
-    private var omega: CGFloat = 5
+    /// The spring is faster than `scrollSpeed` alone: the target already moves
+    /// continuously, so the offset follows it with less delay.
+    private static let springGain: CGFloat = 1.4
+    private var omega: CGFloat = 5 * springGain
+    /// Inside this distance (points) the offset follows the target directly.
+    private static let trackingRadius: CGFloat = 2
+
+    // MARK: Pace
+
+    /// The pace lead moves the view ahead of `position` while the speaker reads. It hides
+    /// the delay of the recognizer.
+    private var isListening = false
+    /// Speaking rate in words per second. This is an exponential moving average.
+    private var paceRate: Double = 2.5
+    /// Time of the last forward update that the lead grows from. Nil when the lead is idle.
+    private var lastForwardTime: CFTimeInterval?
+    /// Lead in words at `lastForwardTime`. It is never negative.
+    private var leadStart: Double = 0
+
+    private enum Pace {
+        /// Forward updates of this many words feed the rate estimate.
+        static let maxStep = 6
+        /// Intervals outside this range (seconds) do not feed the rate estimate.
+        static let minInterval: CFTimeInterval = 0.02
+        static let maxInterval: CFTimeInterval = 2.0
+        static let smoothing = 0.4
+        static let rateRange = 0.5...5.0
+        /// The lead stops growing this long (seconds) after the last update.
+        static let leadWindow: CFTimeInterval = 1.2
+        /// The lead never passes this many words.
+        static let maxLead = 1.0
+    }
 
     private var displayLink: CADisplayLink?
     private let linkProxy = DisplayLinkProxy()
@@ -243,20 +279,30 @@ final class PrompterTextView: NSView {
 
     // MARK: Updates from SwiftUI
 
-    func update(script newScript: Script, position newPosition: Int, style newStyle: PrompterStyle) {
+    func update(
+        script newScript: Script,
+        position newPosition: Int,
+        style newStyle: PrompterStyle,
+        isListening newListening: Bool = false
+    ) {
         let oldStyle = style
         let oldPosition = position
+        let oldListening = isListening
         let textChanged = !isConfigured || newScript.text != script.text
         let fontChanged = !isConfigured
             || oldStyle.fontSize != newStyle.fontSize
             || oldStyle.lineSpacing != newStyle.lineSpacing
         let themeChanged = !isConfigured || oldStyle.theme != newStyle.theme
         let wasConfigured = isConfigured
+        let now = animationClock()
+        // Where the view is now, with the lead of the old state.
+        let displayedBefore = displayedPosition(now: now)
 
         script = newScript
         style = newStyle
         isConfigured = true
-        omega = min(max(newStyle.scrollSpeed, 0.5), 20)
+        isListening = newListening
+        omega = min(max(newStyle.scrollSpeed, 0.5), 20) * Self.springGain
         let clamped = max(0, min(newPosition, newScript.words.count))
 
         if !newStyle.highlightSpokenWords { glows.removeAll() }
@@ -264,6 +310,7 @@ final class PrompterTextView: NSView {
         if textChanged || fontChanged {
             cancelUserScroll()
             glows.removeAll()
+            resetLead()
             rebuildText()
             position = clamped
             applyColors(force: true)
@@ -273,14 +320,102 @@ final class PrompterTextView: NSView {
 
         let widthChanged = syncContainerWidth()
         position = clamped
+        trackPace(from: oldPosition, wasListening: oldListening, displayedBefore: displayedBefore, now: now)
         applyColors(force: themeChanged)
         if widthChanged && !isUserScrolling {
             snapToTarget()
-        } else if clamped != oldPosition && !isUserScrolling {
-            if wasConfigured { startGlows(from: oldPosition, to: clamped) }
-            animate(to: targetOffset(for: clamped))
+        } else if (clamped != oldPosition || newListening != oldListening) && !isUserScrolling {
+            if wasConfigured && clamped != oldPosition { startGlows(from: oldPosition, to: clamped) }
+            animate(to: scrollTarget(now: now))
         }
         needsDisplay = true
+    }
+
+    // MARK: Pace lead
+
+    /// Updates the speaking rate and the lead after the position or the listening state changed.
+    private func trackPace(
+        from oldPosition: Int,
+        wasListening: Bool,
+        displayedBefore: Double,
+        now: CFTimeInterval
+    ) {
+        if isUserScrolling {
+            resetLead()
+            return
+        }
+        let delta = position - oldPosition
+        if delta > 0 {
+            if isListening {
+                if (1...Pace.maxStep).contains(delta), let last = lastForwardTime {
+                    let interval = now - last
+                    if interval >= Pace.minInterval, interval <= Pace.maxInterval {
+                        let sample = Double(delta) / interval
+                        let blended = paceRate + Pace.smoothing * (sample - paceRate)
+                        paceRate = min(max(blended, Pace.rateRange.lowerBound), Pace.rateRange.upperBound)
+                    }
+                }
+                lastForwardTime = now
+            } else {
+                lastForwardTime = nil
+            }
+            // The view never moves backward: keep the part of the old lead that is still ahead.
+            leadStart = max(0, displayedBefore - Double(position))
+        } else if delta < 0 {
+            resetLead()
+        } else if wasListening && !isListening {
+            // Listening stopped. Hold the lead so the text does not move backward.
+            leadStart = max(0, displayedBefore - Double(position))
+            lastForwardTime = nil
+        }
+    }
+
+    private func resetLead() {
+        leadStart = 0
+        lastForwardTime = nil
+    }
+
+    /// The lead in words at `now`. It grows at the speaking rate, up to one word, and stops
+    /// growing `Pace.leadWindow` seconds after the last update.
+    private func currentLead(now: CFTimeInterval) -> Double {
+        guard isListening, let last = lastForwardTime else { return leadStart }
+        let elapsed = min(max(now - last, 0), Pace.leadWindow)
+        return max(leadStart, min(paceRate * elapsed, Pace.maxLead))
+    }
+
+    /// True while the lead can still grow and the view has to keep moving.
+    private func leadIsGrowing(now: CFTimeInterval) -> Bool {
+        guard isListening, !isUserScrolling, let last = lastForwardTime else { return false }
+        let elapsed = now - last
+        return elapsed < Pace.leadWindow && paceRate * elapsed < Pace.maxLead
+    }
+
+    /// The fractional position that the view shows: the integer position plus the lead.
+    private func displayedPosition(now: CFTimeInterval) -> Double {
+        min(Double(position) + currentLead(now: now), Double(script.words.count))
+    }
+
+    /// The fractional position that the view shows now. Tests read it.
+    var fractionalPosition: Double { displayedPosition(now: animationClock()) }
+
+    /// The scroll offset in points. Tests read it.
+    var currentOffset: CGFloat { offset }
+
+    /// The offset that the view moves toward now.
+    private func scrollTarget(now: CFTimeInterval) -> CGFloat {
+        offset(forPosition: displayedPosition(now: now))
+    }
+
+    /// Linear interpolation between the targets of the two words around `fractional`.
+    private func offset(forPosition fractional: Double) -> CGFloat {
+        let count = script.words.count
+        let bounded = min(max(fractional, 0), Double(count))
+        let lower = Int(bounded.rounded(.down))
+        let part = bounded - Double(lower)
+        let start = targetOffset(for: lower)
+        guard part > 0.000_1, lower < count else { return start }
+        let end = targetOffset(for: lower + 1)
+        return start + CGFloat(part) * (end - start)
     }
 
     // MARK: Text
@@ -313,6 +448,7 @@ final class PrompterTextView: NSView {
         syncContainerWidth()
         textStorage.setAttributedString(attributed)
         cachedTextHeight = nil
+        targetCache.removeAll()
         appliedSplit = nil
         appliedTheme = nil
         findContentBounds()
@@ -337,6 +473,7 @@ final class PrompterTextView: NSView {
         containerWidth = width
         textContainer.size = NSSize(width: width, height: Self.containerHeight)
         cachedTextHeight = nil
+        targetCache.removeAll()
         return true
     }
 
@@ -444,35 +581,66 @@ final class PrompterTextView: NSView {
 
     // MARK: Targets
 
-    /// The container y coordinate that puts the word at `position` on the reading line.
+    /// The container y coordinate for the word at `position`.
+    ///
+    /// The target is continuous inside a line. It starts at the center of the line and
+    /// moves toward the center of the next line as the word start moves from the left to
+    /// the right end of the line. The text glides up while the speaker reads across a
+    /// line, and arrives at the next line when the line ends. The first word of a line
+    /// sits exactly on the reading line.
     private func targetOffset(for position: Int) -> CGFloat {
         guard textStorage.length > 0 else { return 0 }
-        let character: Int
-        if script.words.isEmpty {
-            character = firstContentCharacter
-        } else if position >= script.words.count {
-            character = lastContentCharacter
-        } else {
-            character = script.words[position].range.location
-        }
+        let index = max(0, min(position, script.words.count))
+        if let cached = targetCache[index] { return cached }
+        let character = startCharacter(forWordIndex: index)
         guard character >= 0 else { return 0 }
-        return lineCenter(forCharacter: min(character, textStorage.length - 1))
+        let value = glideTarget(forCharacter: min(character, textStorage.length - 1))
+        targetCache[index] = value
+        return value
     }
 
-    /// The visual center of the text on the line that holds `character`.
+    /// The character where the word at `index` starts. The index `words.count` stands for
+    /// the end of the script and maps to the last character that is not blank.
+    private func startCharacter(forWordIndex index: Int) -> Int {
+        if script.words.isEmpty { return firstContentCharacter }
+        if index >= script.words.count { return lastContentCharacter }
+        return script.words[index].range.location
+    }
+
+    /// The center of the line that holds `character`, plus the share of the way to the
+    /// next line that the character start has covered along its line.
+    private func glideTarget(forCharacter character: Int) -> CGFloat {
+        let glyph = layoutManager.glyphIndexForCharacter(at: character)
+        var lineGlyphs = NSRange()
+        let used = layoutManager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: &lineGlyphs)
+        let fragment = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let center = lineCenter(forGlyph: glyph)
+
+        // The next line fragment includes any paragraph gap. The last line has no next line.
+        // The check uses characters, so it does not lay out the rest of the script.
+        let lineCharacters = layoutManager.characterRange(forGlyphRange: lineGlyphs, actualGlyphRange: nil)
+        let nextCenter = NSMaxRange(lineCharacters) < textStorage.length
+            ? lineCenter(forGlyph: NSMaxRange(lineGlyphs))
+            : center + lineHeight
+
+        let startX = fragment.minX + layoutManager.location(forGlyphAt: glyph).x
+        let fraction = used.width > 1 ? min(max((startX - used.minX) / used.width, 0), 1) : 0
+        return center + fraction * (nextCenter - center)
+    }
+
+    /// The visual center of the text on the line that holds `glyph`.
     ///
     /// `lineHeightMultiple` adds the extra space above the glyphs, so the middle of the
     /// line fragment sits above the middle of the glyphs. The center of the cap height
     /// is the middle of what the speaker reads.
-    private func lineCenter(forCharacter character: Int) -> CGFloat {
-        let glyph = layoutManager.glyphIndexForCharacter(at: character)
+    private func lineCenter(forGlyph glyph: Int) -> CGFloat {
         let fragment = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
         let baseline = fragment.minY + layoutManager.location(forGlyphAt: glyph).y
         return baseline - fontCapHeight / 2
     }
 
     private func snapToTarget() {
-        target = targetOffset(for: position)
+        target = scrollTarget(now: animationClock())
         offset = target
         velocity = 0
         springRunning = false
@@ -488,11 +656,14 @@ final class PrompterTextView: NSView {
             velocity = 0
             springRunning = false
             needsDisplay = true
-            pauseLinkIfIdle()
-            return
+        } else {
+            springRunning = true
         }
-        springRunning = true
-        ensureLinkRunning()
+        if springRunning || leadIsGrowing(now: animationClock()) {
+            ensureLinkRunning()
+        } else {
+            pauseLinkIfIdle()
+        }
     }
 
     // MARK: Display link
@@ -512,7 +683,8 @@ final class PrompterTextView: NSView {
     }
 
     private func pauseLinkIfIdle() {
-        guard !springRunning, glows.isEmpty, let link = displayLink, !link.isPaused else { return }
+        guard !springRunning, glows.isEmpty, !leadIsGrowing(now: animationClock()),
+              let link = displayLink, !link.isPaused else { return }
         link.isPaused = true
         lastTick = nil
     }
@@ -521,24 +693,48 @@ final class PrompterTextView: NSView {
         let timestamp = link.timestamp
         let elapsed = lastTick.map { timestamp - $0 } ?? link.duration
         lastTick = timestamp
-        if springRunning {
-            stepSpring(dt: min(max(elapsed, 0), 1.0 / 30.0))
+        advanceFrame(dt: min(max(elapsed, 0), 1.0 / 30.0))
+    }
+
+    /// Runs one animation frame of `dt` seconds. The display link calls it. Tests call it
+    /// with a fixed clock.
+    func advanceFrame(dt: CFTimeInterval) {
+        let now = animationClock()
+        // While the lead is active the target moves with it. It also moves once more after
+        // the lead stopped, so the view ends on the final lead.
+        if isListening, !isUserScrolling, lastForwardTime != nil {
+            target = scrollTarget(now: now)
+            if abs(target - offset) > 0.001 || abs(velocity) > 0.001 { springRunning = true }
         }
-        pruneGlows(now: animationClock())
+        if springRunning {
+            stepSpring(dt: CGFloat(dt))
+        }
+        pruneGlows(now: now)
         needsDisplay = true
         pauseLinkIfIdle()
     }
 
     /// Exact solution of a = w^2 (target - x) - 2 w v over one step. It stays stable
     /// for any step size and any speed.
+    ///
+    /// Inside `trackingRadius` the offset follows the target directly: the remaining
+    /// distance and speed shrink to zero with a smoothstep curve. The curve is 1 at the
+    /// edge of the zone, so a move that ends does not end with a hop.
     private func stepSpring(dt: CGFloat) {
         let w = omega
         let displacement = offset - target
         let c = velocity + w * displacement
         let decay = exp(-w * dt)
-        let newDisplacement = (displacement + c * dt) * decay
-        let newVelocity = (velocity - w * c * dt) * decay
-        if abs(newDisplacement) < 0.3 && abs(newVelocity) < 1 {
+        var newDisplacement = (displacement + c * dt) * decay
+        var newVelocity = (velocity - w * c * dt) * decay
+        let distance = abs(newDisplacement)
+        if distance < Self.trackingRadius {
+            let u = distance / Self.trackingRadius
+            let keep = u * u * (3 - 2 * u)
+            newDisplacement *= keep
+            newVelocity *= keep
+        }
+        if abs(newDisplacement) < 0.05 && abs(newVelocity) < 0.5 {
             offset = target
             velocity = 0
             springRunning = false
@@ -552,7 +748,7 @@ final class PrompterTextView: NSView {
         super.viewDidMoveToWindow()
         if let window {
             window.makeFirstResponder(self)
-            if springRunning || !glows.isEmpty { ensureLinkRunning() }
+            if springRunning || !glows.isEmpty || leadIsGrowing(now: animationClock()) { ensureLinkRunning() }
         } else {
             displayLink?.invalidate()
             displayLink = nil
@@ -742,6 +938,7 @@ final class PrompterTextView: NSView {
         if !event.hasPreciseScrollingDeltas { delta *= lineHeight }
 
         isUserScrolling = true
+        resetLead()
         springRunning = false
         velocity = 0
         offset = min(max(offset - delta, 0), textHeight)
@@ -781,6 +978,7 @@ final class PrompterTextView: NSView {
     /// Sets the position the user chose, colors the text, animates to it and reports it.
     private func commit(index: Int) {
         cancelUserScroll()
+        resetLead()
         let clamped = max(0, min(index, script.words.count))
         position = clamped
         applyColors()
@@ -853,7 +1051,7 @@ final class PrompterTextView: NSView {
     private func movePage(_ direction: Int) {
         guard textStorage.length > 0 else { return }
         let current = currentLine()
-        let y = min(max(target + CGFloat(direction) * bounds.height * 0.6, 0), textHeight)
+        let y = min(max(restingTarget + CGFloat(direction) * bounds.height * 0.6, 0), textHeight)
         var line = startIndex(ofLineWithGlyph: layoutManager.glyphIndex(for: NSPoint(x: 0, y: y), in: textContainer))
         let result: Int
         if direction > 0 {
@@ -870,9 +1068,24 @@ final class PrompterTextView: NSView {
         commit(index: result)
     }
 
-    /// The line at the scroll target and the word index at its start.
+    /// The y coordinate that keyboard navigation starts from: the center of the line that
+    /// holds the current word. The moving target is not used, because it also holds the
+    /// glide and the lead.
+    private var restingTarget: CGFloat {
+        guard !isUserScrolling else { return target }
+        let character = startCharacter(forWordIndex: position)
+        guard character >= 0, textStorage.length > 0 else { return 0 }
+        return lineCenter(forGlyph: layoutManager.glyphIndexForCharacter(at: min(character, textStorage.length - 1)))
+    }
+
+    /// The line that holds the current word and the word index at its start. The glide
+    /// puts the target between two lines, so the line comes from the word and not from y.
     private func currentLine() -> (index: Int, glyphs: NSRange) {
-        startIndex(ofLineWithGlyph: layoutManager.glyphIndex(for: NSPoint(x: 0, y: target), in: textContainer))
+        let character = isUserScrolling ? -1 : startCharacter(forWordIndex: position)
+        let glyph = character >= 0 && textStorage.length > 0
+            ? layoutManager.glyphIndexForCharacter(at: min(character, textStorage.length - 1))
+            : layoutManager.glyphIndex(for: NSPoint(x: 0, y: target), in: textContainer)
+        return startIndex(ofLineWithGlyph: glyph)
     }
 
     override func mouseDown(with event: NSEvent) {
