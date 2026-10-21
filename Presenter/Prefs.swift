@@ -12,6 +12,7 @@ enum Prefs {
     static let showOverlay = "showOverlay"
     static let keepOnTop = "keepOnTop"
     static let localeIdentifier = "localeIdentifier"
+    static let highlightSpokenWords = "highlightSpokenWords"
 
     static let defaultFontSize: Double = 56
     static let defaultLineSpacing: Double = 1.25
@@ -23,6 +24,7 @@ enum Prefs {
     static let defaultShowOverlay = true
     static let defaultKeepOnTop = false
     static let defaultLocaleIdentifier = ""
+    static let defaultHighlightSpokenWords = true
 
     static let fontSizeRange: ClosedRange<Double> = 24...160
     static let fontSizeStep: Double = 4

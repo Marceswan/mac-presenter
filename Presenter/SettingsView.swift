@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(Prefs.showOverlay) private var showOverlay = Prefs.defaultShowOverlay
     @AppStorage(Prefs.keepOnTop) private var keepOnTop = Prefs.defaultKeepOnTop
     @AppStorage(Prefs.localeIdentifier) private var localeIdentifier = Prefs.defaultLocaleIdentifier
+    @AppStorage(Prefs.highlightSpokenWords) private var highlightSpokenWords = Prefs.defaultHighlightSpokenWords
 
     @State private var locales: [Locale] = []
 
@@ -87,6 +88,7 @@ struct SettingsView: View {
                     }
                 }
                 Toggle("Mirror text", isOn: $mirror)
+                Toggle("Highlight each word you speak", isOn: $highlightSpokenWords)
             }
 
             Section("Speech") {

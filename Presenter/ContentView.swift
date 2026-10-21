@@ -14,6 +14,7 @@ struct ContentView: View {
     @AppStorage(Prefs.theme) private var themeRaw = Prefs.defaultTheme
     @AppStorage(Prefs.showOverlay) private var showOverlay = Prefs.defaultShowOverlay
     @AppStorage(Prefs.keepOnTop) private var keepOnTop = Prefs.defaultKeepOnTop
+    @AppStorage(Prefs.highlightSpokenWords) private var highlightSpokenWords = Prefs.defaultHighlightSpokenWords
 
     private var style: PrompterStyle {
         PrompterStyle(
@@ -23,7 +24,8 @@ struct ContentView: View {
             readingLine: CGFloat(readingLine),
             scrollSpeed: CGFloat(scrollSpeed),
             mirror: mirror,
-            theme: PrompterTheme(rawValue: themeRaw) ?? .dark)
+            theme: PrompterTheme(rawValue: themeRaw) ?? .dark,
+            highlightSpokenWords: highlightSpokenWords)
     }
 
     var body: some View {
