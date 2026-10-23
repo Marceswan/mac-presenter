@@ -2,8 +2,25 @@ import AppKit
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    weak var model: PrompterModel?
+    var reopenWindow: (() -> Void)?
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let model, !model.flushSave() else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "Your latest changes could not be saved"
+        alert.informativeText = model.fileError ?? "Keep Presenter open and try saving again."
+        alert.addButton(withTitle: "Keep Editing")
+        alert.addButton(withTitle: "Quit Without Saving")
+        let response = alert.runModal()
+        model.fileError = nil
+        if response == .alertSecondButtonReturn { return .terminateNow }
+        DispatchQueue.main.async { self.reopenWindow?() }
+        return .terminateCancel
     }
 }
 
@@ -14,8 +31,7 @@ struct PresenterApp: App {
 
     var body: some Scene {
         Window("Presenter", id: "main") {
-            ContentView()
-                .environment(model)
+            MainWindowContent(model: model, appDelegate: appDelegate)
         }
         .defaultSize(width: 1000, height: 700)
         .commands {
@@ -28,6 +44,21 @@ struct PresenterApp: App {
     }
 }
 
+private struct MainWindowContent: View {
+    let model: PrompterModel
+    let appDelegate: AppDelegate
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        ContentView()
+            .environment(model)
+            .onAppear {
+                appDelegate.model = model
+                appDelegate.reopenWindow = { openWindow(id: "main") }
+            }
+    }
+}
+
 struct PrompterCommands: Commands {
     let model: PrompterModel
     @AppStorage(Prefs.fontSize) private var fontSize = Prefs.defaultFontSize
@@ -35,9 +66,18 @@ struct PrompterCommands: Commands {
     @AppStorage(Prefs.keepOnTop) private var keepOnTop = Prefs.defaultKeepOnTop
 
     var body: some Commands {
-        CommandGroup(after: .newItem) {
-            Button("Open Script\u{2026}") { model.openScript() }
+        CommandGroup(replacing: .newItem) {
+            Button("New Presentation") { model.newPresentation() }
+                .keyboardShortcut("n")
+            Button("Import Presentation\u{2026}") { model.openScript() }
                 .keyboardShortcut("o")
+            Button("Presentation Library\u{2026}") { model.showLibrary() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+        }
+
+        CommandGroup(replacing: .saveItem) {
+            Button("Save Presentation") { model.flushSave() }
+                .keyboardShortcut("s")
         }
 
         CommandMenu("Prompter") {

@@ -50,10 +50,38 @@ struct ContentView: View {
             .accessibilityHidden(true)
         }
         .toolbar { toolbarContent }
+        .sheet(isPresented: Binding(get: { model.isLibraryPresented }, set: { model.isLibraryPresented = $0 })) {
+            PresentationLibraryView()
+                .environment(model)
+        }
+        .alert("Presentation Error", isPresented: Binding(get: { model.fileError != nil }, set: { if !$0 { model.fileError = nil } })) {
+            Button("OK") { model.fileError = nil }
+        } message: {
+            Text(model.fileError ?? "")
+        }
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            Button { model.showLibrary() } label: {
+                Label("Presentation Library", systemImage: "books.vertical")
+            }
+            .help("Reopen a presentation saved on this Mac (Shift-Command-O)")
+            Button { model.newPresentation() } label: {
+                Label("New Presentation", systemImage: "doc.badge.plus")
+            }
+            .help("Start a new presentation (Command-N)")
+            Button { model.openScript() } label: {
+                Label("Import Presentation", systemImage: "folder")
+            }
+            .help("Import text, Markdown, RTF, or DOCX (Command-O)")
+            Button { model.flushSave() } label: {
+                Label("Save Presentation", systemImage: "square.and.arrow.down")
+            }
+            .help("Save this presentation on this Mac (Command-S)")
+        }
+
         ToolbarItem(placement: .principal) {
             Picker("Mode", selection: Binding(get: { model.mode }, set: { model.setMode($0) })) {
                 Label("Edit", systemImage: "square.and.pencil").tag(PrompterModel.Mode.edit)
@@ -115,6 +143,20 @@ private struct EditorScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            HStack {
+                TextField("Presentation title", text: Binding(
+                    get: { model.presentationTitle }, set: { model.setPresentationTitle($0) }))
+                    .textFieldStyle(.plain)
+                    .font(.title2.bold())
+                    .accessibilityLabel("Presentation title")
+                    .onSubmit { model.flushSave() }
+                Text(model.saveStatus)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 20)
+
             TextEditor(text: Binding(get: { model.scriptText }, set: { model.setScriptText($0) }))
                 .font(.system(size: 17))
                 .scrollContentBackground(.hidden)

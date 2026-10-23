@@ -32,6 +32,21 @@ final class PrompterModel {
     // MARK: State
 
     var mode: Mode = .edit
+    private(set) var presentationTitle: String
+    private(set) var hasUnsavedChanges = false
+    private(set) var saveFailed = false
+    var isLibraryPresented = false
+    var fileError: String?
+
+    var currentPresentationID: UUID { workspace.selectedID }
+    var saveStatus: String {
+        if store == nil { return "Saving unavailable" }
+        if saveFailed { return "Changes not saved" }
+        return hasUnsavedChanges ? "Saving\u{2026}" : "Saved on this Mac"
+    }
+    var presentations: [Presentation] {
+        workspace.presentations.sorted { $0.updatedAt > $1.updatedAt }
+    }
     private(set) var scriptText: String
     private(set) var script: Script
     private(set) var position: Int = 0
@@ -55,6 +70,8 @@ final class PrompterModel {
 
     // MARK: Private
 
+    private var workspace: PresentationWorkspace
+    @ObservationIgnored private let store: PresentationStore?
     @ObservationIgnored private var follower: ScriptFollower
     @ObservationIgnored private var transcript = TranscriptBuffer()
     @ObservationIgnored private let listener = SpeechListener()
@@ -62,12 +79,28 @@ final class PrompterModel {
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var stopTask: Task<Void, Never>?
 
-    init() {
-        let loaded = Self.loadScript() ?? Self.sampleScript
-        scriptText = loaded
-        let script = Script(text: loaded)
+    init(store providedStore: PresentationStore? = nil) {
+        let loaded: PresentationWorkspace
+        do {
+            let store = try providedStore ?? PresentationStore.applicationSupport()
+            loaded = try store.load(defaultText: Self.sampleScript)
+            self.store = store
+        } catch {
+            loaded = PresentationWorkspace(title: "Untitled Presentation", text: Self.sampleScript)
+            self.store = nil
+            fileError = "Could not open your presentation library: \(error.localizedDescription) Your saved files have not been changed. Saving is disabled to preserve them."
+        }
+        workspace = loaded
+        presentationTitle = loaded.current.title
+        scriptText = loaded.current.text
+        let script = Script(text: loaded.current.text)
         self.script = script
         follower = ScriptFollower(script: script)
+        // Persist first-launch content and legacy migration, too.
+        if store != nil {
+            hasUnsavedChanges = true
+            _ = flushSave()
+        }
     }
 
     // MARK: Script text
@@ -76,6 +109,8 @@ final class PrompterModel {
     func setScriptText(_ text: String) {
         guard text != scriptText else { return }
         scriptText = text
+        workspace.setText(text)
+        hasUnsavedChanges = true
         let newScript = Script(text: text)
         script = newScript
         follower = ScriptFollower(script: newScript, position: position)
@@ -83,29 +118,85 @@ final class PrompterModel {
         scheduleSave()
     }
 
+    func setPresentationTitle(_ title: String) {
+        guard title != presentationTitle else { return }
+        presentationTitle = title
+        hasUnsavedChanges = true
+        scheduleSave()
+    }
+
+    func newPresentation() {
+        guard flushSave() else { return }
+        var next = workspace
+        next.add(title: "Untitled Presentation", text: "")
+        activate(next)
+    }
+
+    func showLibrary() {
+        guard flushSave() else { return }
+        setMode(.edit)
+        isLibraryPresented = true
+    }
+
+    func openPresentation(_ id: UUID) {
+        guard flushSave() else { return }
+        var next = workspace
+        next.select(id)
+        activate(next)
+    }
+
     func openScript() {
+        guard flushSave() else { return }
         let panel = NSOpenPanel()
+        panel.title = "Import Presentation"
+        panel.prompt = "Import"
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        var types: [UTType] = [.plainText, .rtf]
-        if let markdown = UTType(filenameExtension: "md") { types.append(markdown) }
-        panel.allowedContentTypes = types
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        let text: String?
-        if url.pathExtension.lowercased() == "rtf" {
-            // Pin the type so a renamed HTML file cannot load remote resources.
-            text = (try? NSAttributedString(
-                url: url,
-                options: [.documentType: NSAttributedString.DocumentType.rtf],
-                documentAttributes: nil))?.string
-        } else {
-            text = try? String(contentsOf: url, encoding: .utf8)
+        panel.allowedContentTypes = ["txt", "md", "markdown", "rtf", "docx"].compactMap {
+            UTType(filenameExtension: $0)
         }
-        guard let text else { return }
-        setScriptText(text)
-        restart()
-        mode = .edit
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        importPresentation(at: url)
+    }
+
+    func importPresentation(at url: URL) {
+        guard flushSave() else { return }
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let text = try ScriptImporter.read(url)
+            var next = workspace
+            next.add(title: url.deletingPathExtension().lastPathComponent, text: text)
+            activate(next)
+        } catch {
+            fileError = "Could not import \(url.lastPathComponent): \(error.localizedDescription)"
+        }
+    }
+
+    /// Save the candidate before switching so a write failure keeps the current work open.
+    private func activate(_ next: PresentationWorkspace) {
+        guard let store else {
+            fileError = "Your saved library could not be opened. Restore it from a backup or use a compatible app version before creating presentations."
+            return
+        }
+        do {
+            try store.save(next)
+            stopListening()
+            workspace = next
+            presentationTitle = next.current.title
+            scriptText = next.current.text
+            script = Script(text: scriptText)
+            follower = ScriptFollower(script: script)
+            transcript = TranscriptBuffer()
+            position = 0
+            heard = ""
+            hasUnsavedChanges = false
+            saveFailed = false
+            mode = .edit
+            isLibraryPresented = false
+        } catch {
+            fileError = "Could not save your presentations: \(error.localizedDescription) Your current presentation is still open."
+        }
     }
 
     // MARK: Position
@@ -210,27 +301,39 @@ final class PrompterModel {
 
     // MARK: Persistence
 
-    private static var scriptURL: URL? {
-        try? FileManager.default
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("Presenter", isDirectory: true)
-            .appendingPathComponent("script.txt")
-    }
-
-    private static func loadScript() -> String? {
-        guard let url = scriptURL else { return nil }
-        return try? String(contentsOf: url, encoding: .utf8)
+    /// Called by Command-S, navigation and app termination, before the debounce can run.
+    @discardableResult
+    func flushSave() -> Bool {
+        saveTask?.cancel()
+        saveTask = nil
+        guard hasUnsavedChanges else { return true }
+        guard let store else {
+            fileError = "Saving is disabled because your existing presentation library could not be opened. Your saved files have not been changed. Quit Presenter and restore the library from a backup or use a compatible app version."
+            return false
+        }
+        var snapshot = workspace
+        snapshot.renameCurrent(to: presentationTitle)
+        do {
+            try store.save(snapshot)
+            workspace = snapshot
+            hasUnsavedChanges = false
+            saveFailed = false
+            return true
+        } catch {
+            saveFailed = true
+            fileError = "Could not save your presentations: \(error.localizedDescription) Your changes are still open. Try saving again with Command-S."
+            return false
+        }
     }
 
     private func scheduleSave() {
         saveTask?.cancel()
-        let text = scriptText
-        saveTask = Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled, let url = Self.scriptURL else { return }
-            try? FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? text.write(to: url, atomically: true, encoding: .utf8)
+        saveFailed = false
+        saveTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(500)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            self?.flushSave()
         }
     }
 }

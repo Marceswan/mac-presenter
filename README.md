@@ -25,6 +25,8 @@ Presenter is a native macOS teleprompter that follows your voice. It listens to 
 
 ## Features
 
+- **Local presentation library.** Save multiple named presentations, reopen them later, and restore the last open presentation when the app launches. Edits save automatically; Cmd+S saves immediately.
+- **Document imports.** Import plain text, Markdown, RTF, and Word DOCX files as editable teleprompter text.
 - **Voice following.** The prompter scrolls when you speak and stops when you stop. You do not set a speed.
 - **On-device recognition.** Presenter uses Apple's SpeechAnalyzer framework. The audio stays on the Mac.
 - **Tolerant matching.** Ad-libs, filler words ("um", "uh") and misheard words do not move the prompter. If you skip a sentence, the prompter finds you again after about 3 words. If you read a sentence again, it goes back.
@@ -50,12 +52,12 @@ Presenter is a native macOS teleprompter that follows your voice. It listens to 
 4. The first time you start listening, macOS asks for microphone access. Click **Allow**.
 5. If the speech model for your language is not on the Mac yet, the status overlay shows "Downloading the speech model". macOS downloads it one time.
 
-To uninstall, move Presenter to the Trash. To also remove the saved script and settings, delete `~/Library/Containers/com.marcswan.Presenter`.
+To uninstall, move Presenter to the Trash. To also remove the saved presentations and settings, delete `~/Library/Containers/com.marcswan.Presenter`.
 
 ## Quick start
 
 1. Open Presenter. The editor shows a sample script.
-2. Replace the sample text with your script, or press **Cmd+O** to open a file.
+2. Name your presentation above the editor and replace the sample text, or press **Cmd+O** to import a file.
 3. Press **Cmd+Return** to show the prompter.
 4. Press **Space** to start listening.
 5. Read out loud at your normal pace. The text moves up while you speak.
@@ -67,8 +69,10 @@ To uninstall, move Presenter to the Trash. To also remove the saved script and s
 - **Cues.** Put stage directions in square brackets: `[PAUSE]`, `[smile]`, `[next slide]`. The prompter shows cues in italic and a different color. It does not wait for you to say them. Only square brackets make a cue. Text in parentheses is read as normal text.
 - **Numbers.** Write numbers as digits or words. The prompter matches "10" and "ten" as the same word. This applies to 0 through 20, the tens (30, 40, ... 90), and 100. Larger numbers must match as written, and the recognizer usually writes them as digits.
 - **Names and jargon.** Presenter sends uncommon words from your script (names, numbers, and long words) to the recognizer as hints. This helps it spell them as you wrote them.
-- **File types.** Cmd+O opens plain text (`.txt`), Markdown (`.md`), and RTF (`.rtf`). Markdown opens as plain text, so symbols such as `#` and `*` show on the prompter.
-- **Saving.** Presenter saves the script automatically, 0.5 seconds after each change. The file is `~/Library/Containers/com.marcswan.Presenter/Data/Library/Application Support/Presenter/script.txt`.
+- **File types.** Cmd+O imports plain text (`.txt`), Markdown (`.md`, `.markdown`), RTF (`.rtf`), and Word (`.docx`). Markdown headings, emphasis, and links become readable text, with paragraphs, list items, and bracketed cues preserved. DOCX and RTF import their text; document layout, styling, and images do not carry over. The source file stays unchanged.
+- **Saving.** Edit the presentation title above the script. Presenter saves titles and text automatically, 0.5 seconds after each change. **Cmd+S** saves immediately. New presentations and imports get separate entries, including unfinished work; duplicate titles do not overwrite another presentation.
+- **Reopening.** Click the library button or press **Shift+Cmd+O**, select a presentation, and click **Open Presentation**. **Cmd+N** starts a new presentation. The last open presentation returns when you relaunch the app.
+- **Local storage.** The library is `~/Library/Containers/com.marcswan.Presenter/Data/Library/Application Support/Presenter/presentations.json`. Back up this file to preserve your presentations. An existing `script.txt` is recovered into the library on first launch and left in place. Save failures are shown; switching and quitting flush pending edits before continuing.
 - **Length.** The editor footer shows the word count and an estimated duration at 140 words per minute.
 
 ## Use the prompter
@@ -106,7 +110,10 @@ To uninstall, move Presenter to the Trash. To also remove the saved script and s
 
 | Shortcut | Action |
 | --- | --- |
-| Cmd+O | Open a script file |
+| Cmd+N | New presentation |
+| Cmd+O | Import text, Markdown, RTF, or DOCX |
+| Cmd+S | Save the current presentation immediately |
+| Shift+Cmd+O | Open the presentation library |
 | Cmd+Return | Switch between the editor and the prompter |
 | Space | Start or stop listening (prompter in focus) |
 | Cmd+L | Start or stop listening |
@@ -205,15 +212,19 @@ presenter/
     PresenterApp.swift        app entry point, window, menus, Settings scene
     PrompterModel.swift       app state: script, position, listening state, persistence
     ContentView.swift         editor screen, prompter screen, toolbar, status overlay
+    PresentationLibraryView.swift  saved presentations and reopening
     PrompterTextView.swift    prompter rendering: TextKit 1 drawing, glide, spring, highlight, input
     SpeechListener.swift      microphone capture and SpeechAnalyzer pipeline
     SettingsView.swift        Settings window
     Prefs.swift               UserDefaults keys and defaults
     Assets.xcassets           app icon
-  PresenterCore/              Swift package with the matching logic (no UI, unit tested)
+  PresenterCore/              Swift package with matching, storage, and document import logic
     Script.swift              tokenizer, cues, normalization, recognizer hints
     ScriptFollower.swift      alignment and position tracking
     TranscriptBuffer.swift    volatile and final recognizer text
+    PresentationStore.swift   versioned local library, atomic saves, legacy migration
+    ScriptImporter.swift      text, Markdown, DOCX, and RTF readers
+  PresenterTests/             app-model save, import, navigation, and recovery tests
   Tools/SpeechCheck/          command-line check: recorded speech -> recognizer -> follower
   scripts/release.sh          Developer ID archive, notarization, DMG
   Design/                     app icon source (SVG and 1024 px PNG)
@@ -223,7 +234,7 @@ presenter/
 
 | Component | Responsibility | Notes |
 | --- | --- | --- |
-| `PresenterCore` | Turns text into matchable words and tracks the reading position | Pure Swift. Fast to test with `swift test`. |
+| `PresenterCore` | Turns text into matchable words and tracks the reading position | Matching and storage use Foundation; document import also uses AppKit. Test with `swift test`. |
 | `SpeechListener` | Microphone permission, model download, audio conversion, recognition events | Main-actor class. The audio tap runs on a real-time thread and is built in a `nonisolated` function, so it does not inherit main-actor isolation. |
 | `PrompterModel` | Connects recognizer events to the follower. Holds the script and the position. | `@Observable`. A generation counter drops events from an older listening session. |
 | `PrompterTextView` | Draws the script and moves it | A custom `NSView`, not a text view. It draws only the visible glyphs, uses temporary attributes for colors so that recoloring does not trigger a new layout, and runs its display link only while something moves. |
@@ -250,6 +261,7 @@ make run
 | `make build` | Builds the Debug app into `build/` |
 | `make run` | Builds and opens the Debug app |
 | `make test` | Runs the `PresenterCore` unit tests |
+| `make test-app` | Runs the app-model integration tests |
 | `make release` | Builds a notarized DMG (see [Release](#release)) |
 | `make release-unsigned` | Runs the release steps without notarization |
 | `make clean` | Removes build output and the generated project |
@@ -271,6 +283,10 @@ The `PresenterCore` tests (Swift Testing) cover:
 - Tokenizing, cues, normalization, and word lookup.
 - Follower behavior: word-by-word reading, partial words, ad-libs and filler words, misheard words, repeated phrases, lone common words, skipping ahead, reading a sentence again, and a seeded noisy-recognition run over a full script.
 - Transcript buffer behavior: volatile replacement, final text, baseline reset, and history limits.
+- Local library round trips, independent entries, selection restore, legacy migration, corrupt libraries, schema validation, and save failures.
+- Markdown blocks, cues, links, line breaks, and code; DOCX/RTF imports and invalid files.
+
+Run `make test-app` for model tests covering immediate saves, switching between unfinished presentations, successful and failed imports, write-failure retries, and preservation of corrupt libraries.
 
 ### Speech check
 
@@ -323,18 +339,20 @@ gh release create v0.2.0 build/release/Presenter-0.2.0.dmg --title "Presenter 0.
 | The prompter jumped to the wrong place in a repeated passage | Scroll to the correct line. Voice following continues from there. |
 | The scroll feels slow or soft | Raise Settings > Scrolling > Scroll speed. |
 | The scroll feels abrupt | Lower Scroll speed. |
-| The script is gone after an update | The script lives in the app container (see [Write a script](#write-a-script)). It stays until you delete the container. |
+| A presentation is missing | Open the library with Shift+Cmd+O. Presentations live in the app container (see [Write a script](#write-a-script)) until you delete the container. |
+| The library cannot be opened | Presenter preserves the existing file and disables saving. Restore `presentations.json` from a backup, or use a compatible Presenter version if the library came from a newer app. |
 
 ## Privacy
 
 - Speech recognition runs on the Mac with Apple's on-device models. Presenter does not send audio or text to a server.
 - The app sandbox has no network entitlement, so the app cannot open network connections. Presenter asks macOS (AssetInventory) to download the speech model.
-- The script is saved only in the app container on your Mac.
+- Presentations are saved only in the app container on your Mac. Imports create local copies and never modify the source files.
 
 ## Known limitations
 
 - Presenter uses the system default microphone. It has no input device picker yet.
 - The status overlay can cover the lowest line of text.
-- One window and one script at a time.
+- One presentation window at a time; switch saved presentations through the library.
+- Imports preserve readable text, not rich document layout or images. The library does not sync between Macs.
 - The matching rules (common words, number words, sound-alike words) are tuned for English. Other supported languages work, but with less tolerance for recognition errors.
 - Very fast speech can arrive in bursts. The pace lead hides most of this, but you can still see small steps.
