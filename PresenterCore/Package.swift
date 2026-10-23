@@ -15,6 +15,7 @@ let package = Package(
         .testTarget(
             name: "PresenterCoreTests",
             dependencies: ["PresenterCore"],
+            resources: [.copy("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

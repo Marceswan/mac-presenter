@@ -5,7 +5,7 @@ APP := build/Build/Products/Debug/Presenter.app
 # xcodebuild prints simulator warnings that do not apply to a Mac-only app.
 NOISE := CoreSimulator|SimServiceContext|IDERunDestination|DVTErrorPresenter|^Domain:|^Code: 3|^Failure Reason|^Recovery Suggestion|^--$$|^$$
 
-.PHONY: project build run test release release-unsigned clean
+.PHONY: project build run test test-app release release-unsigned clean
 
 project:
 	xcodegen generate --quiet
@@ -20,6 +20,11 @@ run: build
 
 test:
 	swift test --package-path PresenterCore
+
+test-app: project
+	xcodebuild -project Presenter.xcodeproj -scheme Presenter -configuration Debug \
+		-destination "platform=macOS,arch=arm64" -derivedDataPath build -quiet test 2>&1 \
+		| sed -E '/$(NOISE)/d'
 
 # Developer ID signature, notarization, and a stapled DMG in build/release.
 release:
