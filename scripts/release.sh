@@ -11,6 +11,7 @@ TEAM_ID="58XKRG9VMA"
 IDENTITY="Developer ID Application: Marc Swan ($TEAM_ID)"
 : "${NOTARY_PROFILE:=conduit-notary}"
 VERSION="$(sed -nE 's/^ *MARKETING_VERSION: *"?([^"]+)"?$/\1/p' project.yml | head -1)"
+BUILD_NUMBER="$(sed -nE 's/^ *CURRENT_PROJECT_VERSION: *"?([^"]+)"?$/\1/p' project.yml | head -1)"
 OUT="$ROOT/build/release"
 ARCHIVE="$OUT/Presenter.xcarchive"
 APP="$OUT/Presenter.app"
@@ -42,6 +43,7 @@ notarize() {
 
 step 1 "Checking preconditions"
 [ -n "$VERSION" ] || fail "MARKETING_VERSION is missing from project.yml"
+[ -n "$BUILD_NUMBER" ] || fail "CURRENT_PROJECT_VERSION is missing from project.yml"
 security find-identity -v -p codesigning | grep -q "$IDENTITY" || fail "signing identity not found: $IDENTITY"
 if [ "$NOTARIZE" = 1 ]; then
   xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
@@ -62,6 +64,10 @@ xcodebuild archive \
 ditto "$ARCHIVE/Products/Applications/Presenter.app" "$APP"
 
 step 3 "Checking the signature"
+APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")"
+[ "$APP_VERSION" = "$VERSION" ] || fail "app version '$APP_VERSION' differs from MARKETING_VERSION '$VERSION'"
+[ "$APP_BUILD" = "$BUILD_NUMBER" ] || fail "app build '$APP_BUILD' differs from CURRENT_PROJECT_VERSION '$BUILD_NUMBER'"
 # Capture output before grep. "grep -q" exits early, and with pipefail the
 # SIGPIPE to the writer fails the whole check.
 codesign --verify --deep --strict --verbose=2 "$APP"
