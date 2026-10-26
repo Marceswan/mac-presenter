@@ -64,6 +64,9 @@ public struct ScriptFollower: Sendable {
     }
 
     private func accepts(_ a: Alignment, delta: Int, stayRank: Double) -> Bool {
+        // Words that fit here as well as ahead are not new evidence. The
+        // recognizer sends the same words again when volatile text becomes final.
+        if delta > 0, a.rank <= stayRank { return false }
         switch delta {
         case 1...2:
             return a.fresh >= 0.35 && (a.support >= 0.35 || a.fresh >= 1.0)
