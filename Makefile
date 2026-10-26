@@ -5,7 +5,7 @@ APP := build/Build/Products/Debug/Presenter.app
 # xcodebuild prints simulator warnings that do not apply to a Mac-only app.
 NOISE := CoreSimulator|SimServiceContext|IDERunDestination|DVTErrorPresenter|^Domain:|^Code: 3|^Failure Reason|^Recovery Suggestion|^--$$|^$$
 
-.PHONY: project build run test test-app release release-unsigned clean
+.PHONY: project build run test test-app release release-unsigned ship clean
 
 project:
 	xcodegen generate --quiet
@@ -33,6 +33,10 @@ release:
 # Same build and DMG, without notarization. Use it to test the pipeline.
 release-unsigned:
 	scripts/release.sh --skip-notarize
+
+# Next patch version: build, notarize, sign the update feed, tag, and publish.
+ship:
+	scripts/ship.sh
 
 clean:
 	rm -rf build Presenter.xcodeproj PresenterCore/.build
