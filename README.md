@@ -22,6 +22,7 @@ Presenter is a native macOS teleprompter that follows your voice. It listens to 
 - [Troubleshooting](#troubleshooting)
 - [Privacy](#privacy)
 - [Known limitations](#known-limitations)
+- [License](#license)
 
 ## Features
 
@@ -51,6 +52,16 @@ Presenter is a native macOS teleprompter that follows your voice. It listens to 
 3. Open Presenter from Applications.
 4. The first time you start listening, macOS asks for microphone access. Click **Allow**.
 5. If the speech model for your language is not on the Mac yet, the status overlay shows "Downloading the speech model". macOS downloads it one time.
+
+### Updates
+
+Presenter 0.3.0 and later update automatically. Presenter checks for a new version every hour, downloads it in the background, and installs it when you quit Presenter. The next launch is the new version. To check now, choose **Presenter > Check for Updates...**.
+
+Presenter never shows an update window while the prompter is showing or while it listens. If an update waits for a long time without a quit, Presenter shows the update window the next time Presenter is the active app, the editor is showing, and listening is off. **Check for Updates...** is unavailable while the prompter is showing or while Presenter listens.
+
+Debug builds (`make run`) do not check for updates.
+
+Versions 0.1.0 and 0.2.0 have no updater. On each Mac, install 0.3.0 or later from the DMG one time. After that, updates arrive automatically.
 
 To uninstall, move Presenter to the Trash. To also remove the saved presentations and settings, delete `~/Library/Containers/com.marcswan.Presenter`.
 
@@ -304,8 +315,8 @@ The tool prints each position change and `FINAL position N of M words`. It exits
 `make release` runs `scripts/release.sh`:
 
 1. Checks the Developer ID identity and the notary credential.
-2. Archives a universal (Apple Silicon and Intel) Release build with the hardened runtime and a secure timestamp.
-3. Checks the signature. It stops if the build has a debug entitlement (`get-task-allow`).
+2. Archives a universal (Apple Silicon and Intel) Release build with the hardened runtime and a secure timestamp. Exports it through Xcode, which signs Sparkle's services and helpers with the Developer ID.
+3. Checks the signatures. It stops if the build has a debug entitlement (`get-task-allow`) or the network client entitlement, if a Sparkle mach-lookup entitlement is missing, or if a Sparkle service or helper does not have the Developer ID signature and the hardened runtime.
 4. Notarizes the app and staples the ticket.
 5. Builds the DMG (with an Applications shortcut) and signs it.
 6. Notarizes the DMG and staples the ticket.
@@ -315,16 +326,30 @@ The output is `build/release/Presenter-<version>.dmg`. If Apple rejects a submis
 
 The script uses the notarytool keychain profile `conduit-notary`. To use a different profile, set `NOTARY_PROFILE`. To create a profile, run `xcrun notarytool store-credentials`.
 
-To publish a new version:
+### Publish a version
 
-1. Change `MARKETING_VERSION` (and `CURRENT_PROJECT_VERSION`) in `project.yml`. Commit and push.
-2. Run `make release`.
-3. Tag and publish:
+Run `make ship` (the next patch version), or `scripts/ship.sh --minor` or `scripts/ship.sh --major`. Run it on `main`, with a clean tree that is pushed. `scripts/ship.sh --dry-run` checks the preconditions and prints the next version without a change.
+
+1. Checks the preconditions: `gh` login, the notary profile, and the Sparkle signing key (keychain account `presenter`). The key must match `SUPublicEDKey` in `project.yml`.
+2. Computes the next version from the newest `v*` tag. The build number is the previous build plus 1. It stops if the newest tag has no GitHub Release, or if the new tag exists.
+3. Writes the version to `project.yml`, then commits and pushes it. If `project.yml` already has the version (an earlier run stopped later), it skips this step.
+4. Runs `scripts/release.sh`.
+5. Signs a one-item update feed (`appcast.xml`) with `generate_appcast`. The release notes are the commit subjects since the previous tag.
+6. Creates the annotated tag `v<version>` and the GitHub Release with the DMG and `appcast.xml`. Then it waits until the live feed serves the new build.
+
+Installed copies read `https://github.com/Marceswan/mac-presenter/releases/latest/download/appcast.xml`. Sparkle never installs a lower version. To fix a bad release, ship a higher version.
+
+The Sparkle tools (`generate_keys`, `generate_appcast`) come from the Sparkle 2.10.0 release. `scripts/sparkle-tools.sh` downloads them into `build/sparkle/` and checks the SHA-256.
+
+**Signing key.** The private key for update signatures is in the login keychain of the release Mac, under the account `presenter`. If the key is lost, installed copies cannot accept new updates. Back it up one time:
 
 ```sh
-git tag -a v0.2.0 -m "Presenter 0.2.0" && git push origin v0.2.0
-gh release create v0.2.0 build/release/Presenter-0.2.0.dmg --title "Presenter 0.2.0" --notes "..."
+"$(scripts/sparkle-tools.sh)/generate_keys" --account presenter -x ~/presenter-sparkle-key
+# Store the file in a password manager, then delete it.
+rm ~/presenter-sparkle-key
 ```
+
+To release from another Mac, import the key there: `generate_keys --account presenter -f <file>`.
 
 ## Troubleshooting
 
@@ -346,6 +371,7 @@ gh release create v0.2.0 build/release/Presenter-0.2.0.dmg --title "Presenter 0.
 
 - Speech recognition runs on the Mac with Apple's on-device models. Presenter does not send audio or text to a server.
 - The app sandbox has no network entitlement, so the app cannot open network connections. Presenter asks macOS (AssetInventory) to download the speech model.
+- Update checks go through Sparkle's separate downloader service. Each hour it reads the update feed from GitHub, and it downloads a new version when there is one. The request includes the app version. It does not include audio, text, or presentations. Sparkle's optional system profile is off.
 - Presentations are saved only in the app container on your Mac. Imports create local copies and never modify the source files.
 
 ## Known limitations
@@ -356,3 +382,9 @@ gh release create v0.2.0 build/release/Presenter-0.2.0.dmg --title "Presenter 0.
 - Imports preserve readable text, not rich document layout or images. The library does not sync between Macs.
 - The matching rules (common words, number words, sound-alike words) are tuned for English. Other supported languages work, but with less tolerance for recognition errors.
 - Very fast speech can arrive in bursts. The pace lead hides most of this, but you can still see small steps.
+
+## License
+
+Presenter is released under the [MIT License](LICENSE).
+
+Presenter includes [Sparkle](https://sparkle-project.org) for updates. Sparkle is under its own MIT-style license. The app shows the full Sparkle license in **Presenter > About Presenter**.

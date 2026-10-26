@@ -232,7 +232,7 @@ final class PrompterModel {
         generation += 1
         let current = generation
         state = .preparing("Starting the microphone")
-        transcript.markBaseline()
+        transcript.startSession()
         let identifier = UserDefaults.standard.string(forKey: Prefs.localeIdentifier) ?? ""
         let locale = identifier.isEmpty ? Locale.current : Locale(identifier: identifier)
         let words = script.contextualWords()

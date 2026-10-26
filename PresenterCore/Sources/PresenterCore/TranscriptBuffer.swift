@@ -33,6 +33,13 @@ public struct TranscriptBuffer: Sendable {
         baseline = storedWordCount
     }
 
+    /// Ignores all words heard so far. Use when a new recognizer session starts:
+    /// the old session never finalizes its volatile text, so it is dropped.
+    public mutating func startSession() {
+        volatile = []
+        baseline = finalized.count
+    }
+
     /// The last `count` words heard after the baseline, oldest first.
     public func tail(_ count: Int) -> [String] {
         Array((finalized + volatile).dropFirst(baseline).suffix(count))

@@ -32,6 +32,16 @@ struct TranscriptBufferTests {
         #expect(buffer.tail(6) == ["new"])
     }
 
+    @Test func newSessionDropsUnfinishedTextWithoutHidingNewWords() {
+        var buffer = TranscriptBuffer()
+        buffer.appendFinal("old words here")
+        buffer.setVolatile("one two three four five six")  // the stopped session never finalizes this
+        buffer.startSession()
+        #expect(buffer.tail(6).isEmpty)
+        buffer.setVolatile("new words")
+        #expect(buffer.tail(6) == ["new", "words"])
+    }
+
     @Test func historyStaysBounded() {
         var buffer = TranscriptBuffer()
         for _ in 0..<500 { buffer.appendFinal("alpha beta") }

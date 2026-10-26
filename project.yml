@@ -7,6 +7,9 @@ options:
 packages:
   PresenterCore:
     path: PresenterCore
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -23,19 +26,34 @@ targets:
     sources: [Presenter]
     dependencies:
       - package: PresenterCore
+      - package: Sparkle
     entitlements:
       path: Presenter/Presenter.entitlements
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.device.audio-input: true
         com.apple.security.files.user-selected.read-only: true
+        # Sparkle's installer and status services. Updates download through
+        # Sparkle's Downloader service, so the app has no network entitlement.
+        com.apple.security.temporary-exception.mach-lookup.global-name:
+          - $(PRODUCT_BUNDLE_IDENTIFIER)-spks
+          - $(PRODUCT_BUNDLE_IDENTIFIER)-spki
     info:
       path: Presenter/Info.plist
       properties:
         CFBundleDisplayName: Presenter
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
         NSMicrophoneUsageDescription: Presenter listens to your voice to scroll the script while you speak. The audio stays on this Mac.
         NSSpeechRecognitionUsageDescription: Presenter changes your speech into text on this Mac to find your place in the script.
+        SUFeedURL: https://github.com/Marceswan/mac-presenter/releases/latest/download/appcast.xml
+        SUPublicEDKey: 0ZC7YeP+EEogdKSiTX+AyatSTdbxfFtFXDhGttyXSBQ=
+        SUEnableAutomaticChecks: true
+        SUAutomaticallyUpdate: true
+        SUScheduledCheckInterval: 3600
+        SUEnableInstallerLauncherService: true
+        SUEnableDownloaderService: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.marcswan.Presenter

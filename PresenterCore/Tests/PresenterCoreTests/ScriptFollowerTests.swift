@@ -73,6 +73,23 @@ struct ScriptFollowerTests {
         #expect(follower.position == 7)
     }
 
+    @Test func finalTextMatchingVolatileTextDoesNotSkipRepeatedPhrase() {
+        var follower = ScriptFollower(script: Script(text: "Welcome home. Welcome home. Closing remarks."))
+        follower.ingest(spokenTail: ["welcome", "home"])  // volatile hypothesis
+        #expect(follower.position == 2)
+        follower.ingest(spokenTail: ["welcome", "home"])  // the same words, now final
+        #expect(follower.position == 2)
+    }
+
+    @Test func speakingRepeatedPhraseAgainAdvances() {
+        var follower = ScriptFollower(script: Script(text: "Welcome home. Welcome home. Closing remarks."))
+        var heard: [String] = []
+        speak("Welcome home", into: &follower, transcript: &heard)
+        #expect(follower.position == 2)
+        speak("Welcome home", into: &follower, transcript: &heard)
+        #expect(follower.position == 4)
+    }
+
     @Test func loneStopwordDoesNotJumpAhead() {
         var follower = ScriptFollower(script: script)
         follower.ingest(spokenTail: ["the"])
