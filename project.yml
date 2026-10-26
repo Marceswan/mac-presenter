@@ -33,6 +33,8 @@ targets:
       path: Presenter/Info.plist
       properties:
         CFBundleDisplayName: Presenter
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
         NSMicrophoneUsageDescription: Presenter listens to your voice to scroll the script while you speak. The audio stays on this Mac.
         NSSpeechRecognitionUsageDescription: Presenter changes your speech into text on this Mac to find your place in the script.
