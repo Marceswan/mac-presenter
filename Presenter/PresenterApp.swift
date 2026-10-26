@@ -28,14 +28,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct PresenterApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = PrompterModel()
+    @State private var updater = AppUpdater()
 
     var body: some Scene {
         Window("Presenter", id: "main") {
-            MainWindowContent(model: model, appDelegate: appDelegate)
+            MainWindowContent(model: model, appDelegate: appDelegate, updater: updater)
         }
         .defaultSize(width: 1000, height: 700)
         .commands {
             PrompterCommands(model: model)
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates\u{2026}") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheckForUpdates)
+            }
         }
 
         Settings {
@@ -47,6 +52,7 @@ struct PresenterApp: App {
 private struct MainWindowContent: View {
     let model: PrompterModel
     let appDelegate: AppDelegate
+    let updater: AppUpdater
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -55,7 +61,14 @@ private struct MainWindowContent: View {
             .onAppear {
                 appDelegate.model = model
                 appDelegate.reopenWindow = { openWindow(id: "main") }
+                reportPresentationState()
             }
+            .onChange(of: model.mode) { reportPresentationState() }
+            .onChange(of: model.isActive) { reportPresentationState() }
+    }
+
+    private func reportPresentationState() {
+        updater.presentationStateChanged(mode: model.mode, isListening: model.isActive)
     }
 }
 
