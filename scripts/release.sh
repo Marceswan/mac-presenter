@@ -61,7 +61,13 @@ xcodebuild archive \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$IDENTITY" DEVELOPMENT_TEAM="$TEAM_ID" \
   OTHER_CODE_SIGN_FLAGS=--timestamp -quiet 2>&1 \
   | sed -E '/CoreSimulator|SimServiceContext|IDERunDestination|DVTErrorPresenter|^Domain:|^Code: 3|^Failure Reason|^Recovery Suggestion|^--$|^$/d'
-ditto "$ARCHIVE/Products/Applications/Presenter.app" "$APP"
+# The export re-signs Sparkle's XPC services and helpers with the Developer ID.
+# A copy out of the archive leaves them ad-hoc signed.
+xcodebuild -exportArchive -archivePath "$ARCHIVE" \
+  -exportOptionsPlist "$ROOT/scripts/export-options.plist" -exportPath "$OUT/export" -quiet 2>&1 \
+  | sed -E '/CoreSimulator|SimServiceContext|IDERunDestination|DVTErrorPresenter|^Domain:|^Code: 3|^Failure Reason|^Recovery Suggestion|^--$|^$/d'
+ditto "$OUT/export/Presenter.app" "$APP"
+rm -rf "$OUT/export"
 
 step 3 "Checking the signature"
 APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
@@ -78,6 +84,21 @@ ENTITLEMENTS="$(codesign -d --entitlements - --xml "$APP" 2>/dev/null)"
 if grep -q "get-task-allow" <<<"$ENTITLEMENTS"; then
   fail "the app has the get-task-allow entitlement (a debug signature)"
 fi
+# Updates download through Sparkle's Downloader service. The app itself has no network access.
+if grep -q "com.apple.security.network.client" <<<"$ENTITLEMENTS"; then
+  fail "the app has the network client entitlement"
+fi
+for name in spks spki; do
+  grep -q "com.marcswan.Presenter-$name" <<<"$ENTITLEMENTS" || fail "the app has no mach-lookup entitlement for Sparkle's -$name service"
+done
+# Sparkle's services and helpers need their own Developer ID signature for notarization.
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+for part in XPCServices/Installer.xpc XPCServices/Downloader.xpc Autoupdate Updater.app; do
+  PART_SIGNATURE="$(codesign -dvv "$SPARKLE/$part" 2>&1)"
+  grep -q "Authority=$IDENTITY" <<<"$PART_SIGNATURE" \
+    && grep -q "flags=0x10000(runtime)" <<<"$PART_SIGNATURE" \
+    || fail "Sparkle $part is not signed with $IDENTITY and the hardened runtime"
+done
 
 if [ "$NOTARIZE" = 1 ]; then
   step 4 "Notarizing the app"
