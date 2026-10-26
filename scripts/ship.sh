@@ -52,8 +52,13 @@ PLIST_KEY="$(yaml_value SUPublicEDKey < project.yml)"
 step 2 "Computing the version"
 PREV_TAG="$(git tag -l 'v*' | sort -V | tail -1)"
 [ -n "$PREV_TAG" ] || fail "no v* tag found"
-gh release view "$PREV_TAG" -R "$REPO" >/dev/null 2>&1 \
-  || fail "tag $PREV_TAG has no GitHub Release (an earlier run stopped after the tag push). Remove the tag and run again: git push origin :refs/tags/$PREV_TAG && git tag -d $PREV_TAG"
+if ! VIEW_ERROR="$(gh release view "$PREV_TAG" -R "$REPO" 2>&1 >/dev/null)"; then
+  # Only "release not found" means a stray tag. Any other error says nothing about the tag.
+  if [ "$VIEW_ERROR" = "release not found" ]; then
+    fail "tag $PREV_TAG has no GitHub Release (an earlier run stopped after the tag push). Remove the tag and run again: git push origin :refs/tags/$PREV_TAG && git tag -d $PREV_TAG"
+  fi
+  fail "could not read the GitHub Release for $PREV_TAG: $VIEW_ERROR. Check the network and gh, then run again. Do not delete the tag."
+fi
 IFS=. read -r MAJOR MINOR PATCH <<<"${PREV_TAG#v}"
 case "$BUMP" in
   major) VERSION="$((MAJOR + 1)).0.0" ;;

@@ -39,7 +39,8 @@ struct PresenterApp: App {
             PrompterCommands(model: model)
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates\u{2026}") { updater.checkForUpdates() }
-                    .disabled(!updater.canCheckForUpdates)
+                    .disabled(!AppUpdater.checkForUpdatesEnabled(
+                        canCheck: updater.canCheckForUpdates, mode: model.mode, isListening: model.isActive))
             }
         }
 
@@ -61,14 +62,11 @@ private struct MainWindowContent: View {
             .onAppear {
                 appDelegate.model = model
                 appDelegate.reopenWindow = { openWindow(id: "main") }
-                reportPresentationState()
+                updater.presentationState = { [model] in (model.mode, model.isActive) }
+                updater.presentationStateChanged()
             }
-            .onChange(of: model.mode) { reportPresentationState() }
-            .onChange(of: model.isActive) { reportPresentationState() }
-    }
-
-    private func reportPresentationState() {
-        updater.presentationStateChanged(mode: model.mode, isListening: model.isActive)
+            .onChange(of: model.mode) { updater.presentationStateChanged() }
+            .onChange(of: model.isActive) { updater.presentationStateChanged() }
     }
 }
 

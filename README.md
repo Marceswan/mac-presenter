@@ -22,6 +22,7 @@ Presenter is a native macOS teleprompter that follows your voice. It listens to 
 - [Troubleshooting](#troubleshooting)
 - [Privacy](#privacy)
 - [Known limitations](#known-limitations)
+- [License](#license)
 
 ## Features
 
@@ -56,7 +57,9 @@ Presenter is a native macOS teleprompter that follows your voice. It listens to 
 
 Presenter 0.3.0 and later update automatically. Presenter checks for a new version every hour, downloads it in the background, and installs it when you quit Presenter. The next launch is the new version. To check now, choose **Presenter > Check for Updates...**.
 
-Presenter never shows an update window while the prompter is showing or while it listens. If an update waits for a long time without a quit, Presenter shows the update window the next time the editor is showing and listening is off.
+Presenter never shows an update window while the prompter is showing or while it listens. If an update waits for a long time without a quit, Presenter shows the update window the next time Presenter is the active app, the editor is showing, and listening is off. **Check for Updates...** is unavailable while the prompter is showing or while Presenter listens.
+
+Debug builds (`make run`) do not check for updates.
 
 Versions 0.1.0 and 0.2.0 have no updater. On each Mac, install 0.3.0 or later from the DMG one time. After that, updates arrive automatically.
 
@@ -379,3 +382,9 @@ To release from another Mac, import the key there: `generate_keys --account pres
 - Imports preserve readable text, not rich document layout or images. The library does not sync between Macs.
 - The matching rules (common words, number words, sound-alike words) are tuned for English. Other supported languages work, but with less tolerance for recognition errors.
 - Very fast speech can arrive in bursts. The pace lead hides most of this, but you can still see small steps.
+
+## License
+
+Presenter is released under the [MIT License](LICENSE).
+
+Presenter includes [Sparkle](https://sparkle-project.org) for updates. Sparkle is under its own MIT-style license. The app shows the full Sparkle license in **Presenter > About Presenter**.

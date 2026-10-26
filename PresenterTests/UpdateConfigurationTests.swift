@@ -28,6 +28,14 @@ struct UpdateConfigurationTests {
         #expect(data.count == 32)
     }
 
+    @Test func appCarriesSparkleLicenseNotice() throws {
+        let url = try #require(Bundle.main.url(forResource: "Credits", withExtension: "html"))
+        let credits = try String(contentsOf: url, encoding: .utf8)
+        #expect(credits.contains("Sparkle"))
+        #expect(credits.contains("Copyright (c) 2006-2013 Andy Matuschak."))
+        #expect(credits.contains("Permission is hereby granted, free of charge"))
+    }
+
     @Test func sandboxEntitlementsAllowSparkleWithoutNetwork() throws {
         #expect(entitlement("com.apple.security.app-sandbox") as? Bool == true)
         #expect(entitlement("com.apple.security.network.client") == nil)
